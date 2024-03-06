@@ -1,0 +1,1547 @@
+---
+title: "Evidencia_A01177261"
+output:
+  word_document: default
+  html_document: default
+---
+---
+title: "Algorithmic trading applied to portfolio management"
+output:
+  html_document: default
+  word_document: default
+---
+
+# Algorithmic trading applied to portfolio management
+#Bloque 1
+
+Momentum in stock returns is generally described as the continuation of those stocks that have performed well recently to do well over the subsequent 1–12 months. On the contrary, long-term reversals refer to the pattern of winning (loser) stocks tending to become losers (winners) in the long run, usually 3–5 years.
+ 
+ In general, momentum and reversals in stock prices is evaluated by sorting stocks into portfolios based on their past return performance and then evaluating the future performance of these portfolios. Although the process of forming winner and loser portfolios to assess momentum and reversals in stock prices is fairly standardized in the literature, the decisions of how to construct the winner and loser portfolios (equally weighted vs. value-weighted) and how to measure risk-adjusted return performance (CAPM, Fama-French 3-factor risk models) remain topics of debate.
+ 
+ A momentum (reversal) portfolio is then created by buying (shorting) the winner portfolio and shorting (buying) the loser portfolio and then evaluating the performance of this zero-cost, long-short portfolio over the next K months. 
+ 
+ So, for example, a 6/6 momentum strategy is a momentum strategy that sorts stocks based on their past 6-month returns and creates a long-short portfolio by buying the winner portfolio and shorting the loser portfolio (as defined earlier) and holding the position for 6 months.
+
+
+```{r include=FALSE}
+library(quantmod)
+library(xml2)
+library(rvest)
+library(openxlsx)
+library(readxl)
+```
+
+
+For this example, we could use the Excel file or 
+```{r warning=FALSE}
+df<- read_excel("C:/Users/aalma/OneDrive/TEC/Carrera/5to semestre/3er Parcial/Modelación y programación financiera (Gpo 3)/Actividades/Actividad 3/Tickers_A01177261.xlsx")
+```
+
+The Api to download the tickers from yahoo finance
+```{r}
+yf <- "https://finance.yahoo.com/quote/%5ENDX/components?p=%5ENDX"
+
+html <- read_html(yf)
+
+# To get the node a, wich contains characters 
+node <- html_nodes(html,"a")
+
+# To read the text in the node
+node<-html_text(node, trim=TRUE)
+
+# To get the elements that have USD (the tickers). For the IPC tickers, replace "USD" with ".MX". For other tickers, print the node object and look for patterns or select by rows. 
+tickers<-grep(pattern = ".USD", x = node, value = TRUE)
+
+#to eliminate tickers whiout information
+tickers<-tickers
+tickers<-tickers[-27]
+tickers<-tickers[-27]
+tickers<-tickers[-27]
+tickers<-tickers[-26]
+tickers<-tickers[-26]
+tickers
+```
+
+This code gets the current IPC tickers from yahoo finance. The stock composition could change over time, them if you want to replicate the example of this document, in the file data.xlsx you will find the sample close prices. T his code gets the current IPC tickers from yahoo finance. The stock composition could change over time, them if you want to replicate the example of this document,  you will find the sample close prices.
+
+```{r}
+tickers<-colnames(df)
+tickers<-tickers[-1]
+
+```
+
+
+
+```{r include=FALSE}
+getSymbols(tickers, from="2020-01-01",to="2021-11-11")
+n<-length(tickers)
+df<-get(tickers[1])[,6]
+
+# loop
+for (i in 2:n){
+df2<-get(tickers[i])[,6]
+df<-cbind(df,df2)
+}
+df
+```
+
+This code gets the 1st and the 3rd tranches in one object. Also, it gets the daily returns for each stock, which we use to estimate the covariance matrix.
+
+```{r}
+ret <-diff(log(df)) # matriz de rendimiento
+reta<-apply(ret,2,mean,na.rm=T) # rend promedio arith
+reta<-data.frame(reta)
+```
+
+```{r}
+sd <- sd(df[,1],na.rm = T)
+
+
+```
+
+Sort
+```{r include=FALSE}
+library(dplyr)
+
+reta1<-reta %>% arrange(desc(reta))
+
+detach("package:dplyr", unload=TRUE)
+```
+
+
+```{r}
+m<-dim(reta1)[1] # numero de tickers
+n<-round(m/3) # tamaño de la muestra de cada tranche
+reta1L<-data.frame(reta1[1:n,]) 
+reta1S<-data.frame(reta1[(m-n):m,])
+rownames(reta1L)<-rownames(reta1)[1:n]
+rownames(reta1S)<-rownames(reta1)[(m-n):m]
+```
+
+```{r}
+colnames(reta1L)<-"ret"
+colnames(reta1S)<-"ret"
+reta1LS<-data.frame(rbind(reta1L,reta1S))
+
+```
+# Para hacer la partición 
+
+#retL2 <- reta1 %>% top_frac(0.33)
+#ret2S <- reta1 %>% top_frac(-0.68)
+
+```{r}
+ret2<- ret[,rownames(reta1LS)]
+cov<-cov(ret2,use="complete.obs")
+
+
+weL<-  runif(n, 0, 1)
+s<-sum(weL)
+weL<-(weL/s)*1.1
+
+weS<-  runif((m-n):m, 0, 1)
+sS<-sum(weS)
+weS<-(-weS/sS)*.1
+#weL# vector de pesos aleatotios
+# cov%*%we 
+#para generar aleatorios runif(le1, 0, 1)
+weLS<-data.frame(c(weL,weS))
+rownames(weLS)<-rownames(reta1LS)
+colnames(weLS)<-"weLS"
+weLS
+```
+
+la desv del portafolio
+```{r}
+covm<-as.matrix(cov)
+weLSm<-as.matrix(weLS)
+covt<-covm%*%weLSm
+covLS<-((t(weLSm)%*%covt)*252)^.5 # desv anualizada
+covLS    # desv mult
+```
+
+```{r}
+reta1LSm<-as.matrix(reta1LS)
+reta1LSf<-(t(weLSm)%*%reta1LSm)*252 #rend esperado del 
+reta1LSf
+# num simulaciones que se quiere realizar
+sim<-10
+# número de tickers del portafolio
+nt<-length(rownames(reta1LS))
+#Matriz para almacenar los resultados del loop
+port<-matrix(0,sim,3+nt)
+port[1,1]<-reta1LSf # rend esp por
+port[1,2]<-covLS # las desv est del por 
+sharpe<-(reta1LSf-.05)/covLS # rf=.05  
+port[1,3]<-sharpe # antes decía covLS
+port[1,4:(3+nt)]<-weLSm[,1]
+colnames(port)<-c("rend","desv_est","sharpe",rownames(reta1LS))
+```
+
+
+Copie y pegué desde weL<-  runif(n, 0, 1) hasta mi rengñon 167 en un solo chunk
+```{r}
+sim<-2000
+nt<-length(rownames(reta1LS))
+#Matriz para almacenar los resultados del loop
+port<-matrix(0,sim,3+nt)
+
+for (i in 1:sim){
+   
+weL<-  runif(n, 0, 1)
+s<-sum(weL)
+weL<-(weL/s)*1.1
+weS<-  runif((m-n):m, 0, 1)
+sS<-sum(weS)
+weS<-(-weS/sS)*.1
+weLS<-data.frame(c(weL,weS))
+rownames(weLS)<-rownames(reta1LS)
+colnames(weLS)<-"weLS"
+#covm<-as.matrix(cov)
+weLSm<-as.matrix(weLS)
+covt<-covm%*%weLSm
+covLS<-((t(weLSm)%*%covt)*252)^.5 # desv anualizada
+reta1LSm<-as.matrix(reta1LS)
+reta1LSf<-(t(weLSm)%*%reta1LSm)*252 #rend eserado 
+# num simulaciones que se quiere realizar
+port[i,1]<-reta1LSf
+port[i,2]<-covLS  
+sharpe<-(reta1LSf-.05)/covLS  
+port[i,3]<-sharpe
+port[i,4:(3+nt)]<-weLSm[,1]
+}
+colnames(port)<-c("rend","desv_est","sharpe",rownames(reta1LS))
+```
+
+```{r}
+plot(port[,2],port[,1])
+```
+
+```{r}
+for (i in 2:sim)
+   {
+weL<-  runif(n, 0, 1)
+s<-sum(weL)
+weL<-(weL/s)*1.1
+weS<-  runif((m-n):m, 0, 1)
+sS<-sum(weS)
+weS<-(-weS/sS)*.1
+weLS<-data.frame(c(weL,weS))
+rownames(weLS)<-rownames(reta1LS)
+colnames(weLS)<-"weLS"
+weLSm<-as.matrix(weLS)
+covt<-covm%*%weLSm
+covLS<-((t(weLSm)%*%covt)*252)^.5 # desv anualizada
+reta1LSm<-as.matrix(reta1LS)
+reta1LSf<-(t(weLSm)%*%reta1LSm)*252 #rend eserado del 
+port[i,1]<-reta1LSf
+port[i,2]<-covLS  
+sharpe<-(reta1LSf-.05)/covLS  
+port[i,3]<-covLS
+port[i,4:(3+nt)]<-weLSm[,1]
+}
+```
+
+
+
+```{r}
+library(ggplot2)
+port2<-as.data.frame(port)
+ggplot(port2, aes(desv_est,rend))+ geom_point(alpha=.5, color="darkred")
+
+```
+
+```{r}
+plot(port[,2],port[,1], xlab = "Riesgo", ylab="Rendimiento", cex = 0.2, pch = 20)
+
+```
+
+```{r}
+plot(port[,2],port[,1],xlab ="Desv est",ylab="Rend del por")
+
+```
+
+The next code creates 1,000 simulations of weights. The code generates aleatory numbers, limiting to invest 100% of the wealth in the stocks in the 1rst tranche (high return). Also, it limits investing 10% of the wealth in the 3rd tranche (low return), but in a short position (you could change that % in line 15, replacing the 0.1 by the % you want). In Table 2, the code prints the returns, standard deviation, Sharpe of the portfolio, and the set of simulated weights. Finally, it orders the results based on the highest Sharpe index. The risk-free rate for this example is 5% .
+
+Note: Regarding the random seed(), students often get nervous when they do not get the same result as the professor because np.random.rand generate aleatory numbers. Then it is useful to take out the # before random seed and get the same result. After everyone gets the same results, insert the # again.
+
+
+
+# Appendix
+
+Functions
+
+An R function is created by using the keyword function. The basic syntax of an R function definition is as follows −
+
+function_name <- function(arg_1, arg_2, ...) {
+   Function body 
+}
+
+
+Create a function to print squares of numbers in sequence.
+
+```{r}
+myfun <- function(a) {
+   for(i in 1:a) {
+      b <- i^2
+      print(b)
+   }
+}	
+```
+
+
+
+```{r}
+myfun(5)
+```
+
+```{r}
+# Create a function with arguments.
+new.function <- function(a,b,c) {
+   result <- a * b + c
+   print(result)
+}
+new.function(5,3,11)
+```
+
+
+
+
+
+## Interactive Brokers API
+#Bloque 2
+
+In programación financiera we will cover automated trading, and we will use the plataform. 
+
+https://www.interactivebrokers.com/en/home.php
+
+```{r include=F}
+library(IBrokers)
+```
+
+To explore the API:
+https://tradersacademy.online/category/trading-courses/ibkr-api
+
+You need to create a free account, download the desktop application and keep it open to do transactions and execute the functions in R. 
+
+To to establish a connection the application server, function twsConnect 
+```{r}
+tws<-twsConnect(port=7497)
+```
+
+To verify if your connection is valid and verifying the connection time
+```{r}
+isConnected(tws)
+twsConnectionTime(tws)
+#twsDisconnect(tws)
+```
+
+The ticker to place an order (buy or sell), the twsEquity(symbol) has information of the ticker that could be changed, like the market where the ticker is traded.
+
+```{r}
+contract<-twsEquity("ZM")
+#contract
+```
+
+To get historical prices, even intra-day
+
+```{r}
+mrna<-reqHistoricalData(tws, Contract=contract,barSize = "1 min",duration = "1 w")
+```
+
+
+To place the order, in this case to buy. 
+```{r}
+orderId<-as.numeric(reqIds(tws))
+
+# this is to create an order object
+myorder<-twsOrder(orderId,orderType = "MKT",action = "Buy",totalQuantity = "50",transmit = TRUE)
+```
+
+To execute the order
+```{r}
+
+placeOrder(tws,contract,myorder)
+# put the for printitng the html
+```
+
+###PART A: DATA LOADING AND SOURCES
+#Bloque 3
+
+```{r}
+library (quantmod)
+
+```
+
+#Above command is to load the quantmod package; apackage which loads data from
+
+# different internet sources: yahoo finance, googlefinance, Fed, oanand
+
+
+#Under yahoo finance, there are stock market data:open-ing, closing, high, low values#Fromoananda, there are currency data just over 5 years,no high or low data###Get FTSE data from yahoo financegetSymbols(“^FTSE”, from=“2010-01-01”,to=“2015-06-15”)plot(FTSE)# To plot the series data FTSE# Codes for other stock markets (codes in brackets)#S&P 100 INDEX: (^OEX);S&P MID CAP 400 INDEX:(^MID), S&P 500:(^GSPC), VOLATILITY S&P 500:(^VIX),#Dow Jones Industrial Average:(^DJI), NASDAQComposite:(^IXIC), NYSE COMPOSITE (DJ):(^NYA),#FTSE 100:(^FTSE), DAX:(^GDAXI), CAC 40:(^FCHI),ESTX50 EUR:(^STOXX50E), Nikkei 225:(^N225),#HANG SENG INDEX:(^HSI), SSE Composite Index:(000001.SS), STI Index:(^STI)###OANANDA: getSymbols (“USD/EUR”, src=“oanda”,from=“2011-01-01”,to=“2015-06-10”)#Note in the case of oananda, only five years spanningtime period works
+
+MLA, 8.ª edición (Modern Language Assoc.)
+Indranarain Ramlall. Applied Technical Analysis for Advanced Learners and Practitioners. Emerald Group Publishing Limited, 2016.
+
+APA, 7.ª edición (American Psychological Assoc.)
+Indranarain Ramlall. (2016). Applied Technical Analysis for Advanced Learners and Practitioners. Emerald Group Publishing Limited.
+
+
+
+```{r}
+library (quantmod)
+
+
+```
+
+#AAPL
+```{r}
+getSymbols("AAPL", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(AAPL)
+```
+```{r}
+str(AAPL)
+```
+```{r}
+Ret.daily<- dailyReturn(AAPL, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(AAPL, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(AAPL, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(AAPL, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(AAPL, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(AAPL, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#ATVI
+```{r}
+getSymbols("ATVI", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(ATVI)
+```
+```{r}
+str(ATVI)
+```
+```{r}
+Ret.daily<- dailyReturn(ATVI, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(ATVI, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(ATVI, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(ATVI, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(ATVI, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(ATVI, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#DLTR
+```{r}
+getSymbols("DLTR", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(DLTR)
+```
+```{r}
+str(DLTR)
+```
+```{r}
+Ret.daily<- dailyReturn(DLTR, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(DLTR, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(DLTR, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(DLTR, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(DLTR, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(DLTR, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#DOCU
+```{r}
+getSymbols("DOCU", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(DOCU)
+```
+```{r}
+str(DOCU)
+```
+```{r}
+Ret.daily<- dailyReturn(DOCU, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(DOCU, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(DOCU, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(DOCU, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(DOCU, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(DOCU, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#MELI
+```{r}
+getSymbols("MELI", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(MELI)
+```
+```{r}
+str(MELI)
+```
+```{r}
+Ret.daily<- dailyReturn(MELI, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(MELI, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(MELI, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(MELI, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(MELI, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(MELI, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#MRNA
+```{r}
+getSymbols("MRNA", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(MRNA)
+```
+```{r}
+str(MRNA)
+```
+```{r}
+Ret.daily<- dailyReturn(MRNA, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(MRNA, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(MRNA, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(MRNA, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(MRNA, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(MRNA, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#SBUX
+```{r}
+getSymbols("SBUX", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(SBUX)
+```
+```{r}
+str(SBUX)
+```
+```{r}
+Ret.daily<- dailyReturn(SBUX, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(SBUX, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(SBUX, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(SBUX, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(SBUX, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(SBUX, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#TXN
+```{r}
+getSymbols("TXN", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(TXN)
+```
+```{r}
+str(TXN)
+```
+```{r}
+Ret.daily<- dailyReturn(TXN, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(TXN, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(TXN, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(TXN, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(TXN, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(TXN, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#VRSN
+```{r}
+getSymbols("VRSN", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(VRSN)
+```
+```{r}
+str(VRSN)
+```
+```{r}
+Ret.daily<- dailyReturn(VRSN, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(VRSN, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(VRSN, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(VRSN, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(VRSN, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(VRSN, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+#ZM
+```{r}
+getSymbols("ZM", from="2020-01-01", to="2021-11-15")
+
+```
+```{r}
+plot(ZM)
+```
+```{r}
+str(ZM)
+```
+```{r}
+Ret.daily<- dailyReturn(ZM, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.weekly<- monthlyReturn(ZM, subset=NULL, type="arithmetic", leading=TRUE)
+
+
+Ret.monthly<- monthlyReturn(ZM, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.quarterly<- quarterlyReturn(ZM, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.yearly<- yearlyReturn(ZM, subset=NULL, type="arithmetic", leading=TRUE)
+
+Ret.allreturns<- allReturns(ZM, subset=NULL, type="arithmetic", leading=TRUE)
+
+```
+
+```{r}
+ALLDATA=cbind(Ret.daily, Ret.weekly, Ret.monthly,Ret.quarterly, Ret.yearly, Ret.allreturns)
+
+summary(ALLDATA, na.rm=T)
+```
+
+##Optimización de portafolios en R
+# 0. Limpiar la sesión
+```{r}
+rm(list=ls())
+if (names(dev.cur()) != "null device") {
+  dev.off()
+}
+cat("\014")
+```
+
+# 1. Cargar librerías
+```{r}
+library(quantmod)
+library(tseries)
+library(PerformanceAnalytics)
+library(ggplot2)
+library(reshape2)
+```
+
+# 2. Descargar datos y extraer precios ajustados
+```{r}
+stock_data <- new.env()
+stock <- c("AAPL", "ATVI", "DLTR", "DOCU", "MELI", "MRNA", "SBUX", "TXN", "VRSN", "ZM" )
+getSymbols(stock, env = stock_data, from = "2020-01-01")
+adj_list <- lapply(stock_data, Ad)
+adj_ts <- do.call(merge, adj_list)
+names(adj_ts) <- gsub(".Adjusted", "", names(adj_ts))
+```
+
+# 3. Calcular retornos
+```{r}
+adj_rets <- na.omit(Return.calculate(adj_ts))
+```
+
+# 4. Calcular vector de retornos esperados y matriz de covarianza (anualizados)
+```{r}
+R <- Return.annualized(adj_rets)
+Sigma <- cov(adj_rets)*252
+sigma <- StdDev.annualized(adj_rets)
+```
+
+# 5. Graficar el espectro riesgo-retorno de los activos en mi universo de inversión
+```{r}
+plot(sigma, R, 
+     main= "Espectro riesgo-retorno para las 10 acciones",
+     xlab= "Riesgo",
+     ylab= "Retorno",
+     col= "blue", pch = 19, cex = 1, lty = "solid", lwd = 2,
+     xlim = c(.2 , 1.2)) 
+text(sigma, R, labels = names(adj_rets), cex= 0.7, pos = 4)
+```
+
+# 6. Portafolio óptimo con tseries
+```{r}
+opt <- portfolio.optim(adj_rets)
+mismos_pesos <- rep(1/ncol(adj_rets), ncol(adj_rets))
+opt_pesos <- opt$pw
+mismos_pesos_stdev <- sqrt(mismos_pesos %*% Sigma %*% t(t(mismos_pesos)))
+opt_pesos_stdev <- sqrt(opt_pesos %*% Sigma %*% t(t(opt_pesos)))
+```
+
+# 7. Comparación de pesos óptimos vs. mismos pesos
+```{r}
+pesos_df <- data.frame(names(adj_rets), mismos_pesos, opt_pesos)
+pesos_mdf <- melt(pesos_df, id.vars = "names.adj_rets.")
+p <- ggplot(pesos_mdf, aes(x=names.adj_rets., y=value, fill=variable)) +
+  labs(x = "ETFs", y = "Peso en el portafolio",
+       title = "Comparación de pesos (Mismos pesos vs. Optimizado)") +
+  scale_fill_discrete(name = "Portafolio",
+                      breaks = c("mismos_pesos", "opt_pesos"),
+                      labels = c("Mismos pesos", "Optimizado")) +
+  geom_bar(stat='identity', position='dodge')
+print(p)
+```
+
+# 8. Calculando la frontera eficiente con tseries
+```{r}
+puntos_fe <- 100
+mu <- colMeans(adj_rets)
+mus <- seq(from = min(mu) + 1e-6, to = max(mu) - 1e-6, length.out = puntos_fe)
+mu_fe <- sigma_fe <- rep(NA, puntos_fe)
+pesos_fe <- matrix(NA, puntos_fe, ncol(adj_rets))
+
+for(i in 1:length(mus)) {
+  opt <- portfolio.optim(x = adj_rets, pm = mus[i])
+  mu_fe[i] <- opt$pw %*% t(R)
+  sigma_fe[i] <- sqrt(t(opt$pw) %*% Sigma %*% opt$pw)
+  pesos_fe[i, ] <- opt$pw
+}
+
+plot(sigma_fe, mu_fe, 
+     main= "Frontera eficiente para las 10 acciones",
+     xlab= "Riesgo",
+     ylab= "Retorno",
+     type = "l", lwd = 2,
+     xlim = c(.2 , 1.2))
+points(sigma, R,
+     col= "blue", pch = 19, cex = 1, lty = "solid", lwd = 2) 
+text(sigma, R, labels = names(adj_rets), cex= 0.7, pos = 4)
+```
+
+# 9. Identificando los portafolios MSR y GMV
+```{r}
+rf_rate <- 0.02
+
+# MSR
+sharpe_ratios <- (mu_fe - rf_rate)/sigma_fe
+pesos_msr <- pesos_fe[sharpe_ratios == max(sharpe_ratios), ]
+mu_msr <- mu_fe[sharpe_ratios == max(sharpe_ratios)]
+sigma_msr <- sigma_fe[sharpe_ratios == max(sharpe_ratios)]
+
+# GMV
+pesos_gmv <- pesos_fe[sigma_fe == min(sigma_fe), ]
+mu_gmv <- mu_fe[sigma_fe == min(sigma_fe)]
+sigma_gmv <- sigma_fe[sigma_fe == min(sigma_fe)]
+
+plot(sigma_fe, mu_fe, 
+     main= "Frontera eficiente para las 10 acciones (con portafolios MSR y GMV)",
+     xlab= "Riesgo",
+     ylab= "Retorno",
+     type = "l", lwd = 2,
+     xlim = c(.2 , 1.2))
+points(sigma, R,
+       col= "blue", pch = 19, cex = 1, lty = "solid", lwd = 2)
+text(sigma, R, labels = names(adj_rets), cex= 0.7, pos = 4)
+points(c(sigma_msr, sigma_gmv), c(mu_msr, mu_gmv),
+       col= c("red", "green"), pch = 19, cex = 1, lty = "solid", lwd = 2)
+text(c(sigma_msr, sigma_gmv), c(mu_msr, mu_gmv),
+     labels = c("MSR", "GMV"), cex= 1, pos = c(3,2))
+
+```
+
+# 10. Comparación de portafolios MSR y GMV
+```{r}
+pesos_df <- data.frame(names(adj_rets), pesos_msr, pesos_gmv)
+pesos_mdf <- melt(pesos_df, id.vars = "names.adj_rets.")
+p <- ggplot(pesos_mdf, aes(x=names.adj_rets., y=value, fill=variable)) +
+  labs(x = "Acciones", y = "Peso en el portafolio",
+       title = "Comparación de pesos (MSR vs. GMV)") +
+  scale_fill_discrete(name = "Portafolio",
+                      breaks = c("pesos_msr", "pesos_gmv"),
+                      labels = c("MSR", "GMV")) +
+  geom_bar(stat='identity', position='dodge')
+print(p)
+```
+
+
+# 11. Rendimiento del MSR vs mismos pesos a partir del 2020
+```{r}
+train_rets <- adj_rets["/2020"]
+test_rets <- adj_rets["2021/"]
+
+train_R <- Return.annualized(train_rets)
+train_Sigma <- cov(train_rets)*252
+
+puntos_fe <- 100
+mu <- colMeans(train_rets)
+mus <- seq(from = min(mu) + 1e-6, to = max(mu) - 1e-6, length.out = puntos_fe)
+mu_fe <- sigma_fe <- rep(NA, puntos_fe)
+pesos_fe <- matrix(NA, puntos_fe, ncol(adj_rets))
+
+for(i in 1:length(mus)) {
+  opt <- portfolio.optim(x = train_rets, pm = mus[i])
+  mu_fe[i] <- opt$pw %*% t(train_R)
+  sigma_fe[i] <- sqrt(t(opt$pw) %*% train_Sigma %*% opt$pw)
+  pesos_fe[i, ] <- opt$pw
+}
+
+# MSR
+rf_rate <- 0.02
+sharpe_ratios <- (mu_fe - rf_rate)/sigma_fe
+pesos_msr <- pesos_fe[sharpe_ratios == max(sharpe_ratios)]
+
+# GMV
+pesos_gmv <- pesos_fe[sigma_fe == min(sigma_fe), ]
+
+test_msr_rets <- Return.portfolio(test_rets, weights = pesos_msr)
+names(test_msr_rets) <- "MSR"
+test_gmv_rets <- Return.portfolio(test_rets, weights = pesos_gmv)
+names(test_gmv_rets) <- "GMV"
+test_mismos_pesos_rets <- Return.portfolio(test_rets, weights = mismos_pesos)
+names(test_mismos_pesos_rets) <- "MismosPesos"
+rets <- cbind(test_msr_rets, test_gmv_rets, test_mismos_pesos_rets)
+
+charts.PerformanceSummary(rets, main = "Comparando MSR vs. GMV vs. Mismos Pesos para 2017-2021")
+print(table.AnnualizedReturns(rets))
+```
+
+
+
+##Analizando los retornos de una accion
+
+#AAPL
+```{r}
+library(quantmod)
+getSymbols("AAPL", from = "2011-01-01")
+```
+
+```{r}
+AAPL <- Ad(AAPL)
+which(is.na(AAPL))
+```
+
+```{r}
+index(AAPL)[which(is.na(AAPL))]
+
+```
+
+```{r}
+AAPL <- na.omit(AAPL)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+AAPL_returns <- dailyReturn(AAPL, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(AAPL, main = "Precios")
+plot(AAPL_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+AAPL_returns <- na.omit(AAPL_returns)
+par(mfrow = c(2, 2))
+hist(AAPL_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(AAPL_returns), col = "red")
+boxplot(AAPL_returns, main = "Boxplot of AAPL_returns")
+acf(AAPL_returns)
+qqnorm(AAPL_returns)
+qqline(AAPL_returns, col = "red")
+```
+
+```{r}
+AAPL_ann_returns <- annualReturn(AAPL, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(AAPL_ann_returns), main = "Retornos anuales de AAPL")
+
+```
+
+#ATVI
+```{r}
+library(quantmod)
+getSymbols("ATVI", from = "2011-01-01")
+```
+
+```{r}
+ATVI <- Ad(ATVI)
+which(is.na(ATVI))
+```
+
+```{r}
+index(ATVI)[which(is.na(ATVI))]
+
+```
+
+```{r}
+ATVI <- na.omit(ATVI)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+ATVI_returns <- dailyReturn(ATVI, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(ATVI, main = "Precios")
+plot(ATVI_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+ATVI_returns <- na.omit(ATVI_returns)
+par(mfrow = c(2, 2))
+hist(ATVI_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(ATVI_returns), col = "red")
+boxplot(ATVI_returns, main = "Boxplot of ATVI_returns")
+acf(ATVI_returns)
+qqnorm(ATVI_returns)
+qqline(ATVI_returns, col = "red")
+```
+
+```{r}
+ATVI_ann_returns <- annualReturn(ATVI, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(ATVI_ann_returns), main = "Retornos anuales de ATVI")
+
+```
+
+#MELI
+```{r}
+library(quantmod)
+getSymbols("MELI", from = "2011-01-01")
+```
+
+```{r}
+MELI <- Ad(MELI)
+which(is.na(MELI))
+```
+
+```{r}
+index(MELI)[which(is.na(MELI))]
+
+```
+
+```{r}
+MELI <- na.omit(MELI)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+MELI_returns <- dailyReturn(MELI, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(MELI, main = "Precios")
+plot(MELI_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+MELI_returns <- na.omit(MELI_returns)
+par(mfrow = c(2, 2))
+hist(MELI_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(MELI_returns), col = "red")
+boxplot(MELI_returns, main = "Boxplot of MELI_returns")
+acf(MELI_returns)
+qqnorm(MELI_returns)
+qqline(MELI_returns, col = "red")
+```
+
+```{r}
+MELI_ann_returns <- annualReturn(MELI, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(MELI_ann_returns), main = "Retornos anuales de MELI")
+
+```
+
+#DLTR
+```{r}
+library(quantmod)
+getSymbols("DLTR", from = "2011-01-01")
+```
+
+```{r}
+DLTR <- Ad(DLTR)
+which(is.na(DLTR))
+```
+
+```{r}
+index(DLTR)[which(is.na(DLTR))]
+
+```
+
+```{r}
+DLTR <- na.omit(DLTR)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+DLTR_returns <- dailyReturn(DLTR, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(DLTR, main = "Precios")
+plot(DLTR_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+DLTR_returns <- na.omit(DLTR_returns)
+par(mfrow = c(2, 2))
+hist(DLTR_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(DLTR_returns), col = "red")
+boxplot(DLTR_returns, main = "Boxplot of DLTR_returns")
+acf(DLTR_returns)
+qqnorm(DLTR_returns)
+qqline(DLTR_returns, col = "red")
+```
+
+```{r}
+DLTR_ann_returns <- annualReturn(DLTR, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(DLTR_ann_returns), main = "Retornos anuales de DLTR")
+
+```
+
+#VRSN
+```{r}
+library(quantmod)
+getSymbols("VRSN", from = "2011-01-01")
+```
+
+```{r}
+VRSN <- Ad(VRSN)
+which(is.na(VRSN))
+```
+
+```{r}
+index(VRSN)[which(is.na(VRSN))]
+
+```
+
+```{r}
+VRSN <- na.omit(VRSN)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+VRSN_returns <- dailyReturn(VRSN, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(VRSN, main = "Precios")
+plot(VRSN_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+VRSN_returns <- na.omit(VRSN_returns)
+par(mfrow = c(2, 2))
+hist(VRSN_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(VRSN_returns), col = "red")
+boxplot(VRSN_returns, main = "Boxplot of VRSN_returns")
+acf(VRSN_returns)
+qqnorm(VRSN_returns)
+qqline(VRSN_returns, col = "red")
+```
+
+```{r}
+VRSN_ann_returns <- annualReturn(VRSN, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(VRSN_ann_returns), main = "Retornos anuales de VRSN")
+
+```
+
+#DOCU
+```{r}
+library(quantmod)
+getSymbols("DOCU", from = "2011-01-01")
+```
+
+```{r}
+DOCU <- Ad(DOCU)
+which(is.na(DOCU))
+```
+
+```{r}
+index(DOCU)[which(is.na(DOCU))]
+
+```
+
+```{r}
+DOCU <- na.omit(DOCU)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+DOCU_returns <- dailyReturn(DOCU, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(DOCU, main = "Precios")
+plot(DOCU_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+DOCU_returns <- na.omit(DOCU_returns)
+par(mfrow = c(2, 2))
+hist(DOCU_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(DOCU_returns), col = "red")
+boxplot(DOCU_returns, main = "Boxplot of DOCU_returns")
+acf(DOCU_returns)
+qqnorm(DOCU_returns)
+qqline(DOCU_returns, col = "red")
+```
+
+```{r}
+DOCU_ann_returns <- annualReturn(DOCU, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(DOCU_ann_returns), main = "Retornos anuales de DOCU")
+
+```
+
+#TXN
+```{r}
+library(quantmod)
+getSymbols("TXN", from = "2011-01-01")
+```
+
+```{r}
+TXN <- Ad(TXN)
+which(is.na(TXN))
+```
+
+```{r}
+index(TXN)[which(is.na(TXN))]
+
+```
+
+```{r}
+TXN <- na.omit(TXN)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+TXN_returns <- dailyReturn(TXN, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(TXN, main = "Precios")
+plot(TXN_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+TXN_returns <- na.omit(TXN_returns)
+par(mfrow = c(2, 2))
+hist(TXN_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(TXN_returns), col = "red")
+boxplot(TXN_returns, main = "Boxplot of TXN_returns")
+acf(TXN_returns)
+qqnorm(TXN_returns)
+qqline(TXN_returns, col = "red")
+```
+
+```{r}
+TXN_ann_returns <- annualReturn(TXN, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(TXN_ann_returns), main = "Retornos anuales de TXN")
+
+```
+
+#ZM
+```{r}
+library(quantmod)
+getSymbols("ZM", from = "2011-01-01")
+```
+
+```{r}
+ZM <- Ad(ZM)
+which(is.na(ZM))
+```
+
+```{r}
+index(ZM)[which(is.na(ZM))]
+
+```
+
+```{r}
+ZM <- na.omit(ZM)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+ZM_returns <- dailyReturn(ZM, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(ZM, main = "Precios")
+plot(ZM_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+ZM_returns <- na.omit(ZM_returns)
+par(mfrow = c(2, 2))
+hist(ZM_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(ZM_returns), col = "red")
+boxplot(ZM_returns, main = "Boxplot of ZM_returns")
+acf(ZM_returns)
+qqnorm(ZM_returns)
+qqline(ZM_returns, col = "red")
+```
+
+```{r}
+ZM_ann_returns <- annualReturn(ZM, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(ZM_ann_returns), main = "Retornos anuales de ZM")
+
+```
+
+#MRNA
+```{r}
+library(quantmod)
+getSymbols("MRNA", from = "2011-01-01")
+```
+
+```{r}
+MRNA <- Ad(MRNA)
+which(is.na(MRNA))
+```
+
+```{r}
+index(MRNA)[which(is.na(MRNA))]
+
+```
+
+```{r}
+MRNA <- na.omit(MRNA)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+MRNA_returns <- dailyReturn(MRNA, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(MRNA, main = "Precios")
+plot(MRNA_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+MRNA_returns <- na.omit(MRNA_returns)
+par(mfrow = c(2, 2))
+hist(MRNA_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(MRNA_returns), col = "red")
+boxplot(MRNA_returns, main = "Boxplot of MRNA_returns")
+acf(MRNA_returns)
+qqnorm(MRNA_returns)
+qqline(MRNA_returns, col = "red")
+```
+
+```{r}
+MRNA_ann_returns <- annualReturn(MRNA, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(MRNA_ann_returns), main = "Retornos anuales de MRNA")
+
+```
+
+#SBUX
+```{r}
+library(quantmod)
+getSymbols("SBUX", from = "2011-01-01")
+```
+
+```{r}
+SBUX <- Ad(SBUX)
+which(is.na(SBUX))
+```
+
+```{r}
+index(SBUX)[which(is.na(SBUX))]
+
+```
+
+```{r}
+SBUX <- na.omit(SBUX)
+
+```
+
+```{r}
+retornos_aritmeticos <- function(time_series) {
+    return(time_series / lag(time_series, k = 1) - 1)
+}
+```
+
+```{r}
+SBUX_returns <- dailyReturn(SBUX, leading = FALSE)
+
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(SBUX, main = "Precios")
+plot(SBUX_returns, main = "Retornos")
+```
+
+```{r}
+library(boxplotdbl)
+```
+
+```{r}
+SBUX_returns <- na.omit(SBUX_returns)
+par(mfrow = c(2, 2))
+hist(SBUX_returns, probability = TRUE, ylim = c(0, 25))
+lines(density(SBUX_returns), col = "red")
+boxplot(SBUX_returns, main = "Boxplot of SBUX_returns")
+acf(SBUX_returns)
+qqnorm(SBUX_returns)
+qqline(SBUX_returns, col = "red")
+```
+
+```{r}
+SBUX_ann_returns <- annualReturn(SBUX, leading = FALSE)
+
+```
+
+```{r}
+plt <- barplot(na.omit(SBUX_ann_returns), main = "Retornos anuales de SBUX")
+
+```
+##Conclusion 
+#Problem to be solved:IBM Analytics, solutions in risk and investment with algorithms.
+
+1. For lending processes IBM analytics team should offer KeyBank the "Bloque 1 Algorithmic trading applied to portfolio management" but instead of using it to analyse stocks and its momentum, IBM should adapt this part to analyse clients and if it is convenient to lend them or not
+
+2. For automatization of asset selection and portfolio optimizer, IBM analytics team should offer Keybank the "Optimización de portafolios en R" on the row 715
+
+3. For the financial advisor online, IBM Analytics team should offer KeyBank the "Analizando retornos de acciones" and "Optimizacion de portafolios" These Chunks are easy to use and understand, so they´ll be perfect for the online financial advisor.
+
+In conclusion in these rmd we´he used many different instruments that´ll help us to analyse stocks, create and manage a perfect portfolio, and automate the process of buying and selling actions. Making the process of creating am optimized portafolio easy and automated
